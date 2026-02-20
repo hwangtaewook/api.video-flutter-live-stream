@@ -3,8 +3,8 @@ version '1.0-SNAPSHOT'
 
 buildscript {
     ext {
-        kotlin_version = '1.9.22'
-        streamPackVersion = '2.6.1'
+        kotlin_version = '2.1.0'
+        streamPackVersion = '3.1.2'
     }
     repositories {
         google()
@@ -12,7 +12,7 @@ buildscript {
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.2'
+        classpath 'com.android.tools.build:gradle:8.9.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -24,12 +24,17 @@ rootProject.allprojects {
     }
 }
 
+repositories {
+    google()
+    mavenCentral()
+}
+
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
     compileSdk 35
-    ndkVersion "26.1.10909125"
+    ndkVersion "27.0.12077973"
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
@@ -65,6 +70,6 @@ dependencies {
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
     implementation 'androidx.appcompat:appcompat:1.6.1'
 
-    implementation "io.github.thibaultbee:streampack:$streamPackVersion"
-    implementation "io.github.thibaultbee:streampack-extension-rtmp:$streamPackVersion"
+    implementation "io.github.thibaultbee.streampack:streampack-core:$streamPackVersion"
+    implementation "io.github.thibaultbee.streampack:streampack-rtmp:$streamPackVersion"
 }

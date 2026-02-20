@@ -4,16 +4,23 @@ import android.Manifest
 import android.util.Size
 import android.view.Surface
 import io.flutter.view.TextureRegistry
-import io.github.thibaultbee.streampack.data.AudioConfig
-import io.github.thibaultbee.streampack.data.VideoConfig
-import io.github.thibaultbee.streampack.error.StreamPackError
-import io.github.thibaultbee.streampack.listeners.OnConnectionListener
-import io.github.thibaultbee.streampack.listeners.OnErrorListener
-import io.github.thibaultbee.streampack.streamers.live.BaseCameraLiveStreamer
+import io.github.thibaultbee.streampack.core.elements.encoders.AudioCodecConfig
+import io.github.thibaultbee.streampack.core.elements.encoders.VideoCodecConfig
+import io.github.thibaultbee.streampack.core.streamers.single.SingleStreamer
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filterNotNull
+import io.github.thibaultbee.streampack.core.interfaces.startPreview
+import io.github.thibaultbee.streampack.core.interfaces.stopPreview
+import io.github.thibaultbee.streampack.core.interfaces.setCameraId
+import io.github.thibaultbee.streampack.core.elements.sources.video.camera.ICameraSource
+import io.github.thibaultbee.streampack.core.interfaces.startStream
 
 class LiveStreamViewManager(
-    private val streamer: BaseCameraLiveStreamer,
+    private val streamer: SingleStreamer,
     textureRegistry: TextureRegistry,
     private val permissionsManager: PermissionsManager,
     private val onConnectionSucceeded: () -> Unit,
@@ -21,8 +28,8 @@ class LiveStreamViewManager(
     private val onConnectionFailed: (String) -> Unit,
     private val onGenericError: (Exception) -> Unit,
     private val onVideoSizeChanged: (Size) -> Unit,
-) :
-    OnConnectionListener, OnErrorListener {
+) {
+    private val scope = CoroutineScope(Dispatchers.Main)
     private val flutterTexture = textureRegistry.createSurfaceTexture()
     val textureId: Long
         get() = flutterTexture.id()
@@ -32,12 +39,12 @@ class LiveStreamViewManager(
     val isStreaming: Boolean
         get() = _isStreaming
 
-    private var _videoConfig: VideoConfig? = null
-    val videoConfig: VideoConfig
+    private var _videoConfig: VideoCodecConfig? = null
+    val videoConfig: VideoCodecConfig
         get() = _videoConfig!!
 
     fun setVideoConfig(
-        videoConfig: VideoConfig,
+        videoConfig: VideoCodecConfig,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
     ) {
@@ -51,7 +58,9 @@ class LiveStreamViewManager(
         if (wasPreviewing) {
             stopPreview()
         }
-        streamer.configure(videoConfig)
+        runBlocking {
+            streamer.setVideoConfig(videoConfig)
+        }
         _videoConfig = videoConfig
         if (wasPreviewing) {
             startPreview(onSuccess, onError)
@@ -60,12 +69,12 @@ class LiveStreamViewManager(
         }
     }
 
-    private var _audioConfig: AudioConfig? = null
-    val audioConfig: AudioConfig
+    private var _audioConfig: AudioCodecConfig? = null
+    val audioConfig: AudioCodecConfig
         get() = _audioConfig!!
 
     fun setAudioConfig(
-        audioConfig: AudioConfig,
+        audioConfig: AudioCodecConfig,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
     ) {
@@ -77,7 +86,9 @@ class LiveStreamViewManager(
             Manifest.permission.RECORD_AUDIO,
             onGranted = {
                 try {
-                    streamer.configure(audioConfig)
+                    runBlocking {
+                        streamer.setAudioConfig(audioConfig)
+                    }
                     _audioConfig = audioConfig
                     onSuccess()
                 } catch (e: Exception) {
@@ -102,20 +113,22 @@ class LiveStreamViewManager(
     }
 
     var isMuted: Boolean
-        get() = streamer.settings.audio.isMuted
+        get() = streamer.audioInput?.isMuted ?: false
         set(value) {
-            streamer.settings.audio.isMuted = value
+            streamer.audioInput?.isMuted = value
         }
 
     val camera: String
-        get() = streamer.camera
+        get() = (streamer.videoInput?.sourceFlow?.value as? ICameraSource)?.cameraId ?: ""
 
     fun setCamera(camera: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
         permissionsManager.requestPermission(
             Manifest.permission.CAMERA,
             onGranted = {
                 try {
-                    streamer.camera = camera
+                    runBlocking {
+                        streamer.setCameraId(camera)
+                    }
                     onSuccess()
                 } catch (e: Exception) {
                     onError(e)
@@ -139,36 +152,48 @@ class LiveStreamViewManager(
     }
 
     init {
-        streamer.onConnectionListener = this
-        streamer.onErrorListener = this
+        scope.launch {
+            streamer.throwableFlow.filterNotNull().collect { throwable ->
+                _isStreaming = false
+                onGenericError(Exception(throwable))
+            }
+        }
+        scope.launch {
+            streamer.isStreamingFlow.collect { isStreaming ->
+                if (isStreaming) {
+                    onConnectionSucceeded()
+                } else {
+                    onDisconnected()
+                }
+            }
+        }
     }
 
     fun dispose() {
         stopStream()
-        streamer.stopPreview()
+        runBlocking {
+            streamer.stopPreview()
+        }
         flutterTexture.release()
     }
 
     fun startStream(url: String) {
         runBlocking {
-            streamer.connect(url)
             try {
-                streamer.startStream()
+                streamer.startStream(url)
                 _isStreaming = true
             } catch (e: Exception) {
-                streamer.disconnect()
-                onLost("Failed to start stream: ${e.message}")
+                onConnectionFailed("Failed to start stream: ${e.message}")
                 throw e
             }
         }
     }
 
     fun stopStream() {
-        val isConnected = streamer.isConnected
+        val wasConnected = streamer.isStreamingFlow.value
         runBlocking {
             streamer.stopStream()
-            streamer.disconnect()
-            if (isConnected) {
+            if (wasConnected) {
                 onDisconnected()
             }
             _isStreaming = false
@@ -183,7 +208,9 @@ class LiveStreamViewManager(
                     onError(IllegalStateException("Video has not been configured!"))
                 } else {
                     try {
-                        streamer.startPreview(getSurface(videoConfig.resolution))
+                        runBlocking {
+                            streamer.startPreview(getSurface(videoConfig.resolution))
+                        }
                         _isPreviewing = true
                         onSuccess()
                     } catch (e: Exception) {
@@ -209,7 +236,9 @@ class LiveStreamViewManager(
     }
 
     fun stopPreview() {
-        streamer.stopPreview()
+        runBlocking {
+            streamer.stopPreview()
+        }
         _isPreviewing = false
     }
 
@@ -224,20 +253,4 @@ class LiveStreamViewManager(
     }
 
 
-    override fun onSuccess() {
-        onConnectionSucceeded()
-    }
-
-    override fun onLost(message: String) {
-        onDisconnected()
-    }
-
-    override fun onFailed(message: String) {
-        onConnectionFailed(message)
-    }
-
-    override fun onError(error: StreamPackError) {
-        _isStreaming = false
-        onGenericError(error)
-    }
 }

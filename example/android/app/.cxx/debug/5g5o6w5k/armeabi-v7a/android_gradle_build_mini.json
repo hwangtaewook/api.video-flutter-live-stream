@@ -1,0 +1,20 @@
+{
+  "buildFiles": [
+    "/Users/finnlabs/development/flutter/packages/flutter_tools/gradle/src/main/scripts/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/finnlabs/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/finnlabs/BQ_Client/api.video-flutter-live-stream/example/android/app/.cxx/debug/5g5o6w5k/armeabi-v7a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/finnlabs/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/finnlabs/BQ_Client/api.video-flutter-live-stream/example/android/app/.cxx/debug/5g5o6w5k/armeabi-v7a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {}
+}

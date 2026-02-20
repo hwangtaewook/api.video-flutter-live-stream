@@ -23,7 +23,8 @@ if (flutterVersionName == null) {
 }
 
 android {
-    compileSdk 34
+    compileSdk 36
+    ndkVersion "27.0.12077973"
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
@@ -31,7 +32,7 @@ android {
 
     defaultConfig {
         applicationId "video.api.flutter.livestream.example"
-        minSdkVersion 21
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
